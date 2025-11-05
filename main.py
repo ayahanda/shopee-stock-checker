@@ -1,125 +1,140 @@
-from flask import Flask, request, render_template_string
-from threading import Thread
+from flask import Flask, request
 import requests
 from bs4 import BeautifulSoup
 import datetime
 import pytz
 import time
-import os
-
-# === CONFIG ===
-DEFAULT_PRODUCT_URL = "https://shopee.com.my/product/482293451/25715198120"
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
-CHECK_INTERVAL = 300  # setiap 5 minit
-
-# === VARIABLES ===
-product_url = DEFAULT_PRODUCT_URL
-last_checked = "Belum disemak"
-stock_status = "⏳ Belum diketahui"
 
 app = Flask(__name__)
 
-# === HTML TEMPLATE ===
-TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Shopee Stock Checker</title>
-    <style>
-        body { font-family: Arial, sans-serif; background: #f8fafc; color: #333; text-align: center; margin-top: 50px; }
-        .card { background: white; padding: 30px; border-radius: 15px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); width: 400px; margin: auto; }
-        h1 { color: #e85d04; }
-        .status { font-size: 1.5em; margin: 15px 0; }
-        form input { width: 80%; padding: 8px; border: 1px solid #ccc; border-radius: 5px; }
-        form button { padding: 8px 12px; background: #0d6efd; color: white; border: none; border-radius: 5px; cursor: pointer; }
-        form button:hover { background: #0b5ed7; }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <h1>Shopee Stock Checker</h1>
-        <p><strong>Current Product:</strong><br><a href="{{ product_url }}" target="_blank">{{ product_url }}</a></p>
-        <p class="status"><strong>Status:</strong> {{ stock_status }}</p>
-        <p><strong>Last Checked (MYT):</strong> {{ last_checked }}</p>
-        <form method="POST">
-            <input type="text" name="new_url" placeholder="Paste Shopee link baru" required>
-            <button type="submit">Tukar Produk</button>
-        </form>
-    </div>
-</body>
-</html>
-"""
+# URL Shopee boleh diubah
+product_url = "https://shopee.com.my/product/482293451/25715198120"
 
-@app.route("/", methods=["GET", "POST"])
-def home():
-    global product_url
-    if request.method == "POST":
-        new_url = request.form.get("new_url")
-        if "shopee.com" in new_url:
-            product_url = new_url
-            send_telegram(f"🔄 Produk baru ditetapkan:\n{product_url}")
-        else:
-            return "❌ URL bukan Shopee link!", 400
-    return render_template_string(TEMPLATE, product_url=product_url, stock_status=stock_status, last_checked=last_checked)
+# Status global
+last_checked = "Belum disemak"
+stock_status = "⏳ Menunggu semakan pertama..."
 
-
+# Fungsi semak stok
 def check_stock():
     global last_checked, stock_status
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
     malaysia_tz = pytz.timezone("Asia/Kuala_Lumpur")
+
     try:
         r = requests.get(product_url, headers=headers, timeout=15)
         last_checked = datetime.datetime.now(malaysia_tz).strftime("%d/%m/%Y %H:%M:%S")
+
         if r.status_code != 200:
             stock_status = f"❗ Gagal akses Shopee ({r.status_code})"
             return None
+
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        # Semak pelbagai keyword untuk stok habis
+        keywords_habis = ["out of stock", "sold out", "habis dijual", "kuantiti habis"]
+        out_of_stock = soup.find_all(string=lambda text: text and any(k in text.lower() for k in keywords_habis))
+
+        if out_of_stock:
+            stock_status = "❌ Tiada stok (OUT OF STOCK)"
+            print(stock_status)
+            return False
+        else:
+            stock_status = "✅ Ada stok!"
+            print(stock_status)
+            return True
+
     except Exception as e:
         stock_status = f"⚠️ Ralat sambungan: {e}"
         return None
 
-    # Semak teks 'sold out' atau 'habis dijual'
-    if "sold out" in r.text.lower() or "out of stock" in r.text.lower():
-        stock_status = "❌ Tiada stok"
-        print(stock_status)
-        return False
+
+# Fungsi utama Flask
+@app.route('/')
+def home():
+    check_stock()  # Semak stok setiap kali laman dibuka
+    html = f"""
+    <html>
+    <head>
+        <title>Semakan Stok Shopee</title>
+        <meta http-equiv="refresh" content="300"> <!-- auto refresh setiap 5 minit -->
+        <style>
+            body {{
+                font-family: Arial, sans-serif;
+                background: #f4f6f8;
+                color: #333;
+                text-align: center;
+                padding-top: 50px;
+            }}
+            .card {{
+                background: white;
+                display: inline-block;
+                padding: 30px 50px;
+                border-radius: 12px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            }}
+            h1 {{ color: #ff6600; }}
+            .status {{
+                font-size: 20px;
+                margin-top: 15px;
+                font-weight: bold;
+            }}
+            .time {{
+                font-size: 16px;
+                color: #666;
+            }}
+            input {{
+                width: 400px;
+                padding: 10px;
+                border-radius: 8px;
+                border: 1px solid #ccc;
+            }}
+            button {{
+                padding: 10px 20px;
+                background-color: #ff6600;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                cursor: pointer;
+                margin-left: 10px;
+            }}
+            button:hover {{
+                background-color: #ff4400;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="card">
+            <h1>🔍 Semakan Stok Shopee</h1>
+            <form method="POST" action="/set_url">
+                <input type="text" name="url" placeholder="Masukkan link Shopee baru" required>
+                <button type="submit">Tukar Produk</button>
+            </form>
+            <div class="status">{stock_status}</div>
+            <div class="time">⏰ Disemak pada: {last_checked}</div>
+            <p>🔗 <a href="{product_url}" target="_blank">{product_url}</a></p>
+        </div>
+    </body>
+    </html>
+    """
+    return html
+
+
+@app.route('/set_url', methods=['POST'])
+def set_url():
+    global product_url
+    new_url = request.form.get('url')
+    if new_url:
+        product_url = new_url
+        return f"""
+        <h2>✅ Link produk ditukar!</h2>
+        <p><a href='/'>Kembali</a></p>
+        <p>Produk baru: {product_url}</p>
+        """
     else:
-        stock_status = "✅ Ada stok!"
-        print(stock_status)
-        return True
+        return "<h3>❌ Tiada URL dimasukkan</h3>"
 
 
-def send_telegram(msg):
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        print("⚠️ Telegram tidak dikonfigurasi.")
-        return
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML"}
-    try:
-        requests.post(url, data=payload)
-        print("📩 Telegram dihantar.")
-    except Exception as e:
-        print("Ralat Telegram:", e)
-
-
-def stock_checker_loop():
-    notified = False
-    while True:
-        status = check_stock()
-        if status and not notified:
-            send_telegram(f"🚨 Barang Shopee dah ada stok!\n👉 <a href='{product_url}'>Klik sini untuk beli</a>")
-            notified = True
-        elif status is False:
-            notified = False
-        time.sleep(CHECK_INTERVAL)
-
-
-def run_background():
-    t = Thread(target=stock_checker_loop)
-    t.daemon = True
-    t.start()
-
-
-if __name__ == "__main__":
-    run_background()
-    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)))
+# Untuk Render, guna ini sebagai start command
+if __name__ == '__main__':
+    # Jalankan server Flask
+    app.run(host='0.0.0.0', port=10000)
