@@ -8,7 +8,7 @@ import time
 import os
 
 # === CONFIG ===
-DEFAULT_PRODUCT_URL = "https://shopee.com.my/product/724335/2212828002"
+DEFAULT_PRODUCT_URL = "https://shopee.com.my/product/482293451/25715198120"
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 CHECK_INTERVAL = 300  # setiap 5 minit
