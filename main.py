@@ -2,6 +2,8 @@ from flask import Flask, request, render_template_string
 from threading import Thread
 import requests
 from bs4 import BeautifulSoup
+import datetime
+import pytz
 import time
 import os
 
@@ -9,7 +11,7 @@ import os
 DEFAULT_PRODUCT_URL = "https://shopee.com.my/product/724335/2212828002"
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
-CHECK_INTERVAL = 300  # 5 minit
+CHECK_INTERVAL = 300  # setiap 5 minit
 
 # === VARIABLES ===
 product_url = DEFAULT_PRODUCT_URL
@@ -18,7 +20,7 @@ stock_status = "⏳ Belum diketahui"
 
 app = Flask(__name__)
 
-# HTML TEMPLATE
+# === HTML TEMPLATE ===
 TEMPLATE = """
 <!DOCTYPE html>
 <html>
@@ -39,7 +41,7 @@ TEMPLATE = """
         <h1>Shopee Stock Checker</h1>
         <p><strong>Current Product:</strong><br><a href="{{ product_url }}" target="_blank">{{ product_url }}</a></p>
         <p class="status"><strong>Status:</strong> {{ stock_status }}</p>
-        <p><strong>Last Checked:</strong> {{ last_checked }}</p>
+        <p><strong>Last Checked (MYT):</strong> {{ last_checked }}</p>
         <form method="POST">
             <input type="text" name="new_url" placeholder="Paste Shopee link baru" required>
             <button type="submit">Tukar Produk</button>
@@ -61,12 +63,14 @@ def home():
             return "❌ URL bukan Shopee link!", 400
     return render_template_string(TEMPLATE, product_url=product_url, stock_status=stock_status, last_checked=last_checked)
 
+
 def check_stock():
     global last_checked, stock_status
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    malaysia_tz = pytz.timezone("Asia/Kuala_Lumpur")
     try:
         r = requests.get(product_url, headers=headers, timeout=15)
-        last_checked = time.strftime("%d/%m/%Y %H:%M:%S")
+        last_checked = datetime.datetime.now(malaysia_tz).strftime("%d/%m/%Y %H:%M:%S")
         if r.status_code != 200:
             stock_status = f"❗ Gagal akses Shopee ({r.status_code})"
             return None
@@ -74,7 +78,8 @@ def check_stock():
         stock_status = f"⚠️ Ralat sambungan: {e}"
         return None
 
-    if "sold out" in r.text.lower() or "habis dijual" in r.text.lower():
+    # Semak teks 'sold out' atau 'habis dijual'
+    if "sold out" in r.text.lower() or "OUT OF STOCK" in r.text.lower():
         stock_status = "❌ Tiada stok"
         print(stock_status)
         return False
@@ -83,7 +88,11 @@ def check_stock():
         print(stock_status)
         return True
 
+
 def send_telegram(msg):
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        print("⚠️ Telegram tidak dikonfigurasi.")
+        return
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML"}
     try:
@@ -91,6 +100,7 @@ def send_telegram(msg):
         print("📩 Telegram dihantar.")
     except Exception as e:
         print("Ralat Telegram:", e)
+
 
 def stock_checker_loop():
     notified = False
@@ -103,10 +113,12 @@ def stock_checker_loop():
             notified = False
         time.sleep(CHECK_INTERVAL)
 
+
 def run_background():
     t = Thread(target=stock_checker_loop)
     t.daemon = True
     t.start()
+
 
 if __name__ == "__main__":
     run_background()
