@@ -79,7 +79,7 @@ def check_stock():
         return None
 
     # Semak teks 'sold out' atau 'habis dijual'
-    if "sold out" in r.text.lower() or "OUT OF STOCK" in r.text.lower():
+    if "sold out" in r.text.lower() or "out of stock" in r.text.lower():
         stock_status = "❌ Tiada stok"
         print(stock_status)
         return False
